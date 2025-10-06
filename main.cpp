@@ -102,13 +102,13 @@ private:
     void print_scoreboard() {
         auto sorted_teams = get_sorted_teams();
         
-        for (Team* team : sorted_teams) {
+        for (const Team* team : sorted_teams) {
             cout << team->name << " " << team->ranking << " " 
                  << team->solved_count << " " << team->penalty_time;
             
             for (char p = 'A'; p < 'A' + problem_count; p++) {
                 cout << " ";
-                ProblemStatus& ps = team->problems[p];
+                const ProblemStatus& ps = team->problems.at(p);
                 
                 if (ps.is_frozen) {
                     int frozen_count = ps.frozen_subs.size();
@@ -240,24 +240,26 @@ public:
         assign_rankings();
         print_scoreboard();
         
+        // Maintain a sorted list of teams
+        auto sorted_teams = get_sorted_teams();
+        
         // Process all frozen problems in order
         while (true) {
-            // Find lowest ranked team with frozen problems
+            // Find lowest ranked team with frozen problems from sorted list
             Team* target_team = nullptr;
-            int lowest_rank = 0;
             
-            for (const string& name : team_names) {
-                Team& t = teams[name];
+            for (int i = sorted_teams.size() - 1; i >= 0; i--) {
+                Team* t = sorted_teams[i];
                 bool has_frozen = false;
                 for (char p = 'A'; p < 'A' + problem_count; p++) {
-                    if (t.problems[p].is_frozen) {
+                    if (t->problems[p].is_frozen) {
                         has_frozen = true;
                         break;
                     }
                 }
-                if (has_frozen && t.ranking > lowest_rank) {
-                    lowest_rank = t.ranking;
-                    target_team = &t;
+                if (has_frozen) {
+                    target_team = t;
+                    break;
                 }
             }
             
@@ -292,18 +294,18 @@ public:
             // Only recalculate stats for the target team
             target_team->calculate_stats(problem_count);
             
-            // Reassign all rankings (necessary for correctness)
-            assign_rankings();
+            // Resort to get new rankings
+            sorted_teams = get_sorted_teams();
+            for (size_t i = 0; i < sorted_teams.size(); i++) {
+                sorted_teams[i]->ranking = i + 1;
+            }
             
             // Check if ranking improved and output if so
             if (target_team->ranking < old_rank) {
                 // Find the team that is now at old_rank or closest below target
                 string replaced_name = "";
-                for (const string& name : team_names) {
-                    if (teams[name].ranking == target_team->ranking + 1) {
-                        replaced_name = name;
-                        break;
-                    }
+                if (target_team->ranking < (int)sorted_teams.size()) {
+                    replaced_name = sorted_teams[target_team->ranking]->name;
                 }
                 
                 cout << target_team->name << " " << replaced_name << " " 
