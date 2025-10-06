@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <set>
 #include <algorithm>
 #include <sstream>
 
@@ -81,26 +82,25 @@ private:
         }
     }
     
-    void assign_rankings() {
+    vector<Team*> get_sorted_teams() {
         vector<Team*> sorted_teams;
         for (const string& name : team_names) {
             sorted_teams.push_back(&teams[name]);
         }
         sort(sorted_teams.begin(), sorted_teams.end(), 
              [](Team* a, Team* b) { return *a < *b; });
-        
+        return sorted_teams;
+    }
+    
+    void assign_rankings() {
+        auto sorted_teams = get_sorted_teams();
         for (size_t i = 0; i < sorted_teams.size(); i++) {
             sorted_teams[i]->ranking = i + 1;
         }
     }
     
     void print_scoreboard() {
-        vector<Team*> sorted_teams;
-        for (const string& name : team_names) {
-            sorted_teams.push_back(&teams[name]);
-        }
-        sort(sorted_teams.begin(), sorted_teams.end(), 
-             [](Team* a, Team* b) { return *a < *b; });
+        auto sorted_teams = get_sorted_teams();
         
         for (Team* team : sorted_teams) {
             cout << team->name << " " << team->ranking << " " 
@@ -240,6 +240,7 @@ public:
         assign_rankings();
         print_scoreboard();
         
+        // Process all frozen problems in order
         while (true) {
             // Find lowest ranked team with frozen problems
             Team* target_team = nullptr;
@@ -273,7 +274,7 @@ public:
             
             int old_rank = target_team->ranking;
             
-            // Process frozen submissions
+            // Process frozen submissions for this problem
             ProblemStatus& ps = target_team->problems[unfreeze_prob];
             for (const auto& sub : ps.frozen_subs) {
                 if (!ps.solved) {
@@ -288,12 +289,15 @@ public:
             ps.is_frozen = false;
             ps.frozen_subs.clear();
             
-            // Recalculate and reassign rankings
-            update_all_stats();
+            // Only recalculate stats for the target team
+            target_team->calculate_stats(problem_count);
+            
+            // Reassign all rankings (necessary for correctness)
             assign_rankings();
             
+            // Check if ranking improved and output if so
             if (target_team->ranking < old_rank) {
-                // Find replaced team
+                // Find the team that is now at old_rank or closest below target
                 string replaced_name = "";
                 for (const string& name : team_names) {
                     if (teams[name].ranking == target_team->ranking + 1) {
