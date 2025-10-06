@@ -247,6 +247,7 @@ public:
         while (true) {
             // Find lowest ranked team with frozen problems from sorted list
             Team* target_team = nullptr;
+            int target_idx = -1;
             
             for (int i = sorted_teams.size() - 1; i >= 0; i--) {
                 Team* t = sorted_teams[i];
@@ -259,6 +260,7 @@ public:
                 }
                 if (has_frozen) {
                     target_team = t;
+                    target_idx = i;
                     break;
                 }
             }
@@ -274,7 +276,7 @@ public:
                 }
             }
             
-            int old_rank = target_team->ranking;
+            int old_rank = target_idx + 1;
             
             // Process frozen submissions for this problem
             ProblemStatus& ps = target_team->problems[unfreeze_prob];
@@ -294,18 +296,35 @@ public:
             // Only recalculate stats for the target team
             target_team->calculate_stats(problem_count);
             
-            // Resort to get new rankings
-            sorted_teams = get_sorted_teams();
+            // Remove from current position
+            sorted_teams.erase(sorted_teams.begin() + target_idx);
+            
+            // Find new position using binary search / linear search
+            int new_idx = 0;
+            for (size_t i = 0; i < sorted_teams.size(); i++) {
+                if (*sorted_teams[i] < *target_team) {
+                    new_idx = i + 1;
+                } else {
+                    break;
+                }
+            }
+            
+            // Insert at new position
+            sorted_teams.insert(sorted_teams.begin() + new_idx, target_team);
+            
+            // Update rankings
             for (size_t i = 0; i < sorted_teams.size(); i++) {
                 sorted_teams[i]->ranking = i + 1;
             }
             
+            int new_rank = new_idx + 1;
+            
             // Check if ranking improved and output if so
-            if (target_team->ranking < old_rank) {
+            if (new_rank < old_rank) {
                 // Find the team that is now at old_rank or closest below target
                 string replaced_name = "";
-                if (target_team->ranking < (int)sorted_teams.size()) {
-                    replaced_name = sorted_teams[target_team->ranking]->name;
+                if (new_idx < (int)sorted_teams.size() - 1) {
+                    replaced_name = sorted_teams[new_idx + 1]->name;
                 }
                 
                 cout << target_team->name << " " << replaced_name << " " 
