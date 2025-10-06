@@ -11,7 +11,7 @@ struct ProblemStatus {
     bool solved = false;
     int wrong_attempts = 0;
     int solve_time = 0;
-    vector<pair<string, int>> frozen_subs; // status, time
+    vector<pair<string, int>> frozen_subs;
     bool is_frozen = false;
     bool was_solved_before_freeze = false;
 };
@@ -32,6 +32,38 @@ struct Team {
     int penalty_time = 0;
     vector<int> solve_times;
     int ranking = 0;
+    
+    void calculate_stats(int problem_count) {
+        solved_count = 0;
+        penalty_time = 0;
+        solve_times.clear();
+        
+        for (char p = 'A'; p < 'A' + problem_count; p++) {
+            ProblemStatus& ps = problems[p];
+            if (ps.solved && !ps.is_frozen) {
+                solved_count++;
+                penalty_time += ps.solve_time + 20 * ps.wrong_attempts;
+                solve_times.push_back(ps.solve_time);
+            }
+        }
+        sort(solve_times.rbegin(), solve_times.rend());
+    }
+    
+    bool operator<(const Team& other) const {
+        if (solved_count != other.solved_count) {
+            return solved_count > other.solved_count;
+        }
+        if (penalty_time != other.penalty_time) {
+            return penalty_time < other.penalty_time;
+        }
+        size_t min_size = min(solve_times.size(), other.solve_times.size());
+        for (size_t i = 0; i < min_size; i++) {
+            if (solve_times[i] != other.solve_times[i]) {
+                return solve_times[i] < other.solve_times[i];
+            }
+        }
+        return name < other.name;
+    }
 };
 
 class ICPCSystem {
@@ -43,53 +75,20 @@ private:
     int duration_time = 0;
     int problem_count = 0;
     
-    void calculate_stats(Team& team) {
-        team.solved_count = 0;
-        team.penalty_time = 0;
-        team.solve_times.clear();
-        
-        for (char p = 'A'; p < 'A' + problem_count; p++) {
-            ProblemStatus& ps = team.problems[p];
-            if (ps.solved && !ps.is_frozen) {
-                team.solved_count++;
-                team.penalty_time += ps.solve_time + 20 * ps.wrong_attempts;
-                team.solve_times.push_back(ps.solve_time);
-            }
-        }
-        sort(team.solve_times.rbegin(), team.solve_times.rend());
-    }
-    
-    bool compare_teams(const Team& t1, const Team& t2) {
-        if (t1.solved_count != t2.solved_count) {
-            return t1.solved_count > t2.solved_count;
-        }
-        if (t1.penalty_time != t2.penalty_time) {
-            return t1.penalty_time < t2.penalty_time;
-        }
-        size_t min_size = min(t1.solve_times.size(), t2.solve_times.size());
-        for (size_t i = 0; i < min_size; i++) {
-            if (t1.solve_times[i] != t2.solve_times[i]) {
-                return t1.solve_times[i] < t2.solve_times[i];
-            }
-        }
-        return t1.name < t2.name;
-    }
-    
-    void update_rankings() {
-        // Calculate stats for all teams
+    void update_all_stats() {
         for (auto& p : teams) {
-            calculate_stats(p.second);
+            p.second.calculate_stats(problem_count);
         }
-        
-        // Sort teams
+    }
+    
+    void assign_rankings() {
         vector<Team*> sorted_teams;
         for (const string& name : team_names) {
             sorted_teams.push_back(&teams[name]);
         }
         sort(sorted_teams.begin(), sorted_teams.end(), 
-             [this](Team* a, Team* b) { return compare_teams(*a, *b); });
+             [](Team* a, Team* b) { return *a < *b; });
         
-        // Assign rankings
         for (size_t i = 0; i < sorted_teams.size(); i++) {
             sorted_teams[i]->ranking = i + 1;
         }
@@ -101,7 +100,7 @@ private:
             sorted_teams.push_back(&teams[name]);
         }
         sort(sorted_teams.begin(), sorted_teams.end(), 
-             [this](Team* a, Team* b) { return compare_teams(*a, *b); });
+             [](Team* a, Team* b) { return *a < *b; });
         
         for (Team* team : sorted_teams) {
             cout << team->name << " " << team->ranking << " " 
@@ -170,7 +169,6 @@ public:
             }
         }
         
-        // Initial ranking by name
         vector<string> sorted = team_names;
         sort(sorted.begin(), sorted.end());
         for (size_t i = 0; i < sorted.size(); i++) {
@@ -207,7 +205,8 @@ public:
     }
     
     void flush() {
-        update_rankings();
+        update_all_stats();
+        assign_rankings();
         cout << "[Info]Flush scoreboard.\n";
     }
     
@@ -217,7 +216,6 @@ public:
             return;
         }
         
-        // Mark all solved problems before freeze
         for (auto& p : teams) {
             for (char prob = 'A'; prob < 'A' + problem_count; prob++) {
                 if (p.second.problems[prob].solved) {
@@ -238,11 +236,10 @@ public:
         
         cout << "[Info]Scroll scoreboard.\n";
         
-        // First flush and print
-        update_rankings();
+        update_all_stats();
+        assign_rankings();
         print_scoreboard();
         
-        // Scroll process
         while (true) {
             // Find lowest ranked team with frozen problems
             Team* target_team = nullptr;
@@ -274,10 +271,9 @@ public:
                 }
             }
             
-            // Save old ranking
             int old_rank = target_team->ranking;
             
-            // Process frozen submissions for this problem
+            // Process frozen submissions
             ProblemStatus& ps = target_team->problems[unfreeze_prob];
             for (const auto& sub : ps.frozen_subs) {
                 if (!ps.solved) {
@@ -292,12 +288,12 @@ public:
             ps.is_frozen = false;
             ps.frozen_subs.clear();
             
-            // Update rankings
-            update_rankings();
+            // Recalculate and reassign rankings
+            update_all_stats();
+            assign_rankings();
             
-            // Check if ranking improved
             if (target_team->ranking < old_rank) {
-                // Find replaced team (team that is now at old_rank position)
+                // Find replaced team
                 string replaced_name = "";
                 for (const string& name : team_names) {
                     if (teams[name].ranking == target_team->ranking + 1) {
@@ -311,9 +307,7 @@ public:
             }
         }
         
-        // Print final scoreboard
         print_scoreboard();
-        
         is_frozen = false;
     }
     
